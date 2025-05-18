@@ -7,6 +7,11 @@ npm -i patch-package --force
 mkdir patch
 ```
 Then download `hexo-renderer-typst+0.6.0.patch` and put it into `patch/`.
+
+Then apply the patch
+```
+npx patch-package
+```
 ## how to use
 At the head of your `.typ` files, write like this:
 ```typst
