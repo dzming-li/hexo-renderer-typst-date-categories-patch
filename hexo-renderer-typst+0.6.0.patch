@@ -1,0 +1,95 @@
+diff --git a/node_modules/hexo-renderer-typst/lib/processor.cjs b/node_modules/hexo-renderer-typst/lib/processor.cjs
+index 01c64bb..9962af1 100644
+--- a/node_modules/hexo-renderer-typst/lib/processor.cjs
++++ b/node_modules/hexo-renderer-typst/lib/processor.cjs
+@@ -1,28 +1,84 @@
+-const path = require('path');
++const path   = require('path');
++const fs     = require('fs');
++const moment = require('moment');
+ 
+ class Processor {
+   constructor(hexo, compiler) {
+-    this.hexo = hexo;
++    this.hexo     = hexo;
+     this.compiler = compiler;
+   }
+ 
+-  process(data) {
++  async process(data) {
+     if (!(data.source.endsWith('.typ') || data.source.endsWith('.typst'))) {
+       return;
+     }
+ 
+     const base_dir = this.hexo.base_dir;
+-    let title = this.compiler.title(path.resolve(base_dir, `source/${data.source}`));
++    const filePath = path.resolve(base_dir, `source/${data.source}`);
+ 
+-    if ((!title) || title === null) {
++    let categories = [];
++
++    try {
++      const raw = fs.readFileSync(filePath, 'utf8');
++      const lines = raw.split(/\r?\n/);
++
++      // —— 读取顶端注释的 date 并转为 Moment —— 
++      const m = raw.match(/^\s*(?:\/\/|#)\s*date\s*:\s*["']?(.+?)["']?\s*$/im);
++      if (m) {
++        const d = new Date(m[1].trim());
++        if (!isNaN(d)) {
++          data.date = moment(d);
++        } else {
++          console.warn('[typst] invalid date format in', data.source, m[1]);
++        }
++      }
++
++      // —— 读取 categories（第二、第三行） —— 
++      if (
++        lines.length >= 3 &&
++        lines[1].trim().match(/^\/\/\s*categories\s*:\s*$/i)
++      ) {
++        const categoryLine = lines[2].trim();
++        const categoryMatch = categoryLine.match(/^\/\/\s*-\s*(.+)$/);
++        if (categoryMatch) {
++          categories = [categoryMatch[1].trim()];
++        } else {
++          console.warn('[typst] malformed category in', data.source, lines[2]);
++        }
++      }
++
++    } catch (err) {
++      console.error('[typst] failed to parse metadata from', data.source, err);
++    }
++
++    // 保留从 document.title 读取标题的逻辑
++    let title = this.compiler.title(filePath);
++
++    if (!title) {
+       console.error('[typst]', `title not found in ${data.source}`);
+       title = 'Untitled Typst';
+     }
+ 
+-    data.title = title;
++    data.title     = title;
+     data.published = true;
++
++    // 插入文章数据
++    const Post = this.hexo.model('Post');
++    let doc = Post.findOne({source: data.source});
++    if (doc) {
++      doc.replace(data);
++    } else {
++      doc = Post.insert(data);
++    }
++
++    // 设置分类
++    if (categories.length > 0) {
++      await doc.setCategories(categories);
++    }
++
+     return data;
+   }
+ }
+ 
+ module.exports = Processor;
++
